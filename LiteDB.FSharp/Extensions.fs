@@ -112,7 +112,9 @@ module Extensions =
        ///Include DBRef field in result query execution
         static member expand (exp: Expression<Func<'a,'b>>) (query: LiteQueryable<'a>) =
             query.Include(exp)
-       
+        static member tryFirst (query: LiteQueryable<'a>) =
+            query.ToEnumerable() |> Seq.tryHead
+
         static member first (query: LiteQueryable<'a>) =
             query.First()
 
@@ -126,3 +128,5 @@ module Extensions =
         static member find (exp: Expression<Func<'a,bool>>) (query: LiteQueryable<'a>) =
             query |> LiteQueryable.where exp |> LiteQueryable.first
 
+        static member tryFind (exp: Expression<Func<'a,bool>>) (query: LiteQueryable<'a>) =
+            query |> LiteQueryable.where exp |> LiteQueryable.tryFirst
