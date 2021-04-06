@@ -85,6 +85,8 @@ module private Cache =
     let serializationBinderTypes = ConcurrentDictionary<string,Type>()
     let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
     let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
+    let singlePrivateCaseUnionTypes = ConcurrentDictionary<Type, UnionCaseInfo option>()
+
 
 open Cache
 open System
@@ -141,8 +143,22 @@ type FSharpJsonConverter() =
         read 0 List.empty
 
     let getUci t name =
-        FSharpType.GetUnionCases(t)
+        FSharpType.GetUnionCases(t, true)
         |> Array.find (fun uci -> uci.Name = name)
+
+    let (|SinglePrivateCase|_|) t = 
+        singlePrivateCaseUnionTypes.GetOrAdd(t, (fun _ ->
+            match FSharpType.IsUnion t with 
+            | true ->
+                match FSharpType.GetUnionCases(t, true) with
+                | [| uci |] -> 
+                    let ctors = uci.DeclaringType.GetConstructors()
+                    match ctors.Length with 
+                    | 0 -> Some uci
+                    | _ -> None
+                | _ -> None
+            | _ -> None
+        ))
 
     let isRegisteredParentType (tp: Type) =
         inheritedConverterTypes.ContainsKey(tp.FullName)
@@ -168,7 +184,7 @@ type FSharpJsonConverter() =
                 then Kind.Binary
                 elif FSharpType.IsTuple t
                 then Kind.Tuple
-                elif (FSharpType.IsUnion t && t.Name <> "FSharpList`1")
+                elif (FSharpType.IsUnion (t, true) && t.Name <> "FSharpList`1")
                 then Kind.Union
                 elif (FSharpType.IsRecord t)
                 then Kind.Record
@@ -233,12 +249,17 @@ type FSharpJsonConverter() =
                 let values = FSharpValue.GetTupleFields(value)
                 serializer.Serialize(writer, values)
             | true, Kind.Union ->
-                let uci, fields = FSharpValue.GetUnionFields(value, t)
+                let uci, fields = FSharpValue.GetUnionFields(value, t, true)
+
+                let caseName = uci.Name
+
                 if fields.Length = 0
-                then serializer.Serialize(writer, uci.Name)
+                then serializer.Serialize(writer, caseName)
+                        
                 else
                     writer.WriteStartObject()
-                    writer.WritePropertyName(uci.Name)
+                    writer.WritePropertyName(caseName)
+
                     if fields.Length = 1
                     then serializer.Serialize(writer, fields.[0])
                     else serializer.Serialize(writer, fields)
@@ -327,23 +348,37 @@ type FSharpJsonConverter() =
         | true, Kind.Union ->
             match reader.TokenType with
             | JsonToken.String ->
-                let name = serializer.Deserialize(reader, typeof<string>) :?> string
-                FSharpValue.MakeUnion(getUci t name, [||])
+                let uci =
+                    match t with 
+                    | SinglePrivateCase uci -> uci
+                    | _ -> 
+                        let name = serializer.Deserialize(reader, typeof<string>) :?> string
+                        getUci t name
+
+                FSharpValue.MakeUnion(uci, [||], true)
+
             | JsonToken.StartObject ->
                 advance reader
-                let name = reader.Value :?> string
-                let uci = getUci t name
+                let uci = 
+                    match t with 
+                    | SinglePrivateCase uci -> uci
+                    | _ -> 
+                        let name = reader.Value :?> string
+                        getUci t name
+                
                 advance reader
+
                 let itemTypes = uci.GetFields() |> Array.map (fun pi -> pi.PropertyType)
                 if itemTypes.Length > 1
                 then
                     let values = readElements(reader, itemTypes, serializer)
                     advance reader
-                    FSharpValue.MakeUnion(uci, List.toArray values)
+                    FSharpValue.MakeUnion(uci, List.toArray values, true)
                 else
                     let value = serializer.Deserialize(reader, itemTypes.[0])
                     advance reader
-                    FSharpValue.MakeUnion(uci, [|value|])
+
+                    FSharpValue.MakeUnion(uci, [|value|], true)
             | JsonToken.Null -> null // for { "union": null }
             | _ -> failwith "invalid token"
         | true, Kind.MapOrDictWithNonStringKey ->
@@ -382,7 +417,9 @@ type FSharpJsonConverter() =
                 let fieldType = recordField.PropertyType
                 let fieldName = recordField.Name
                 match recordJson.TryGetValue fieldName with 
-                | true, fieldValueJson -> fieldValueJson.ToObject(fieldType, serializer)
+                | true, fieldValueJson -> 
+                    fieldValueJson.ToObject(fieldType, serializer)
+                    
                 | false, _ -> DefaultValue.fromType fieldType
             
             FSharpValue.MakeRecord(t, recordValues)
