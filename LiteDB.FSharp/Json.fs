@@ -4,93 +4,19 @@ open LiteDB
 open System.Globalization
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
-
-[<AutoOpen>]
-module ReflectionAdapters =
-    open System.Reflection
-
-    type System.Type with
-        member this.IsValueType = this.GetTypeInfo().IsValueType
-        member this.IsGenericType = this.GetTypeInfo().IsGenericType
-        member this.GetMethod(name) = this.GetTypeInfo().GetMethod(name)
-        member this.GetGenericArguments() = this.GetTypeInfo().GetGenericArguments()
-        member this.MakeGenericType(args) = this.GetTypeInfo().MakeGenericType(args)
-        member this.GetCustomAttributes(inherits : bool) : obj[] =
-            downcast box(CustomAttributeExtensions.GetCustomAttributes(this.GetTypeInfo(), inherits) |> Seq.toArray)
-
 open System
 open FSharp.Reflection
-open Newtonsoft.Json
-open Newtonsoft.Json.Converters
 open System.Reflection
 open System.Collections.Generic
 open System.Collections.Concurrent
-open System.Text.RegularExpressions
+open System.Runtime.CompilerServices
 
-type Kind =
-    | Other = 0
-    | Option = 1
-    | Tuple = 2
-    | Union = 3
-    | DateTime = 6
-    | MapOrDictWithNonStringKey = 7
-    | Long = 8
-    | BigInt = 9
-    | Guid = 10
-    | Decimal = 11
-    | Binary = 12
-    | ObjectId = 13
-    | Double = 14
-    | Record = 15
 
-/// Helper for serializing map/dict with non-primitive, non-string keys such as unions and records.
-/// Performs additional serialization/deserialization of the key object and uses the resulting JSON
-/// representation of the key object as the string key in the serialized map/dict.
-type MapSerializer<'k,'v when 'k : comparison>() =
-    static member Deserialize(t:Type, reader:JsonReader, serializer:JsonSerializer) =
-        let dictionary =
-            serializer.Deserialize<Dictionary<string,'v>>(reader)
-                |> Seq.fold (fun (dict:Dictionary<'k,'v>) kvp ->
-                    use tempReader = new System.IO.StringReader(kvp.Key)
-                    let key = serializer.Deserialize(tempReader, typeof<'k>) :?> 'k
-                    dict.Add(key, kvp.Value)
-                    dict
-                    ) (Dictionary<'k,'v>())
-        if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Map<_,_>>
-        then dictionary |> Seq.map (|KeyValue|) |> Map.ofSeq :> obj
-        elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Dictionary<_,_>>
-        then dictionary :> obj
-        else failwith "MapSerializer input type wasn't a Map or a Dictionary"
-    static member Serialize(value: obj, writer:JsonWriter, serializer:JsonSerializer) =
-        let kvpSeq =
-            match value with
-            | :? Map<'k,'v> as mapObj -> mapObj |> Map.toSeq
-            | :? Dictionary<'k,'v> as dictObj -> dictObj |> Seq.map (|KeyValue|)
-            | _ -> failwith "MapSerializer input value wasn't a Map or a Dictionary"
-        writer.WriteStartObject()
-        use tempWriter = new System.IO.StringWriter()
-        kvpSeq
-            |> Seq.iter (fun (k,v) ->
-                let key =
-                    tempWriter.GetStringBuilder().Clear() |> ignore
-                    serializer.Serialize(tempWriter, k)
-                    tempWriter.ToString()
-                writer.WritePropertyName(key)
-                serializer.Serialize(writer, v) )
-        writer.WriteEndObject()
-
-module private Cache =
-
-    let jsonConverterTypes = ConcurrentDictionary<Type,Kind>()
-    let serializationBinderTypes = ConcurrentDictionary<string,Type>()
-    let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
-    let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
-
-open Cache
-open System
+[<assembly: InternalsVisibleTo("LiteDB.FSharp.Tests")>]
+do()
 
 [<RequireQualifiedAccess>]
-module DefaultValue = 
+module internal DefaultValue = 
     type DefaultGen<'t>() = 
         member this.GetDefault() =
             let typeSignature = typeof<'t>.FullName
@@ -118,37 +44,52 @@ module DefaultValue =
     let fromType (inputType: System.Type) : obj = 
         let genericDefaultGenType = typedefof<DefaultGen<_>>.MakeGenericType(inputType)
         let defaultGenerator = Activator.CreateInstance(genericDefaultGenType)
-        let getDefaultMethod = genericDefaultGenType.GetMethods() |> Seq.filter (fun meth -> meth.Name = "GetDefault") |> Seq.head
+        let getDefaultMethod = genericDefaultGenType.GetMethods(BindingFlags.NonPublic ||| BindingFlags.Instance ) |> Seq.filter (fun meth -> meth.Name = "GetDefault") |> Seq.head
         getDefaultMethod.Invoke(defaultGenerator, [||])
 
-/// Converts F# options, tuples and unions to a format understandable
-/// A derivative of Fable's JsonConverter. Code adapted from Lev Gorodinski's original.
-/// See https://goo.gl/F6YiQk
-type FSharpJsonConverter() =
-    inherit Newtonsoft.Json.JsonConverter()
-    let advance(reader: JsonReader) =
-        reader.Read() |> ignore
 
-    let readElements(reader: JsonReader, itemTypes: Type[], serializer: JsonSerializer) =
-        let rec read index acc =
-            match reader.TokenType with
-            | JsonToken.EndArray -> acc
-            | _ ->
-                let value = serializer.Deserialize(reader, itemTypes.[index])
-                advance reader
-                read (index + 1) (acc @ [value])
-        advance reader
-        read 0 List.empty
 
-    let getUci t name =
-        FSharpType.GetUnionCases(t)
-        |> Array.find (fun uci -> uci.Name = name)
+[<AutoOpen>]
+module private _JsonUtils =
 
-    let isRegisteredParentType (tp: Type) =
-        inheritedConverterTypes.ContainsKey(tp.FullName)
+    [<AutoOpen>]
+    module ReflectionAdapters =
 
-    override x.CanConvert(t) =
-        let kind =
+        type System.Type with
+            member this.IsValueType = this.GetTypeInfo().IsValueType
+            member this.IsGenericType = this.GetTypeInfo().IsGenericType
+            member this.GetMethod(name) = this.GetTypeInfo().GetMethod(name)
+            member this.GetGenericArguments() = this.GetTypeInfo().GetGenericArguments()
+            member this.MakeGenericType(args) = this.GetTypeInfo().MakeGenericType(args)
+            member this.GetCustomAttributes(inherits : bool) : obj[] =
+                downcast box(CustomAttributeExtensions.GetCustomAttributes(this.GetTypeInfo(), inherits) |> Seq.toArray)
+
+
+
+    type Kind =
+        | Other = 0
+        | Option = 1
+        | Tuple = 2
+        | Union = 3
+        | DateTime = 6
+        | MapOrDictWithNonStringKey = 7
+        | Long = 8
+        | BigInt = 9
+        | Guid = 10
+        | Decimal = 11
+        | Binary = 12
+        | ObjectId = 13
+        | Double = 14
+        | Record = 15
+
+    module Cache =
+
+        let jsonConverterTypes = ConcurrentDictionary<Type,Kind>()
+        let serializationBinderTypes = ConcurrentDictionary<string,Type>()
+        let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
+        let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
+
+        let getOrAddTypeKind (t: Type) =
             jsonConverterTypes.GetOrAdd(t, fun t ->
                 if t.FullName = "System.DateTime"
                 then Kind.DateTime
@@ -178,7 +119,80 @@ type FSharpJsonConverter() =
                 then
                     Kind.MapOrDictWithNonStringKey
                 else Kind.Other)
-        
+
+    /// Helper for serializing map/dict with non-primitive, non-string keys such as unions and records.
+    /// Performs additional serialization/deserialization of the key object and uses the resulting JSON
+    /// representation of the key object as the string key in the serialized map/dict.
+    type MapSerializer<'k,'v when 'k : comparison>() =
+        static member Deserialize(t:Type, reader:JsonReader, serializer:JsonSerializer) =
+            let dictionary =
+                serializer.Deserialize<Dictionary<string,'v>>(reader)
+                    |> Seq.fold (fun (dict:Dictionary<'k,'v>) kvp ->
+                        use tempReader = new System.IO.StringReader(kvp.Key)
+                        let key = serializer.Deserialize(tempReader, typeof<'k>) :?> 'k
+                        dict.Add(key, kvp.Value)
+                        dict
+                        ) (Dictionary<'k,'v>())
+            if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Map<_,_>>
+            then dictionary |> Seq.map (|KeyValue|) |> Map.ofSeq :> obj
+            elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Dictionary<_,_>>
+            then dictionary :> obj
+            else failwith "MapSerializer input type wasn't a Map or a Dictionary"
+        static member Serialize(value: obj, writer:JsonWriter, serializer:JsonSerializer) =
+            let kvpSeq =
+                match value with
+                | :? Map<'k,'v> as mapObj -> mapObj |> Map.toSeq
+                | :? Dictionary<'k,'v> as dictObj -> dictObj |> Seq.map (|KeyValue|)
+                | _ -> failwith "MapSerializer input value wasn't a Map or a Dictionary"
+            writer.WriteStartObject()
+            use tempWriter = new System.IO.StringWriter()
+            kvpSeq
+                |> Seq.iter (fun (k,v) ->
+                    let key =
+                        tempWriter.GetStringBuilder().Clear() |> ignore
+                        serializer.Serialize(tempWriter, k)
+                        tempWriter.ToString()
+                    writer.WritePropertyName(key)
+                    serializer.Serialize(writer, v) )
+            writer.WriteEndObject()
+
+
+    open Cache
+    open System
+
+
+
+open Cache
+
+/// Converts F# options, tuples and unions to a format understandable
+/// A derivative of Fable's JsonConverter. Code adapted from Lev Gorodinski's original.
+/// See https://goo.gl/F6YiQk
+type FSharpJsonConverter() =
+    inherit Newtonsoft.Json.JsonConverter()
+    let advance(reader: JsonReader) =
+        reader.Read() |> ignore
+
+    let readElements(reader: JsonReader, itemTypes: Type[], serializer: JsonSerializer) =
+        let rec read index acc =
+            match reader.TokenType with
+            | JsonToken.EndArray -> acc
+            | _ ->
+                let value = serializer.Deserialize(reader, itemTypes.[index])
+                advance reader
+                read (index + 1) (acc @ [value])
+        advance reader
+        read 0 List.empty
+
+    let getUci t name =
+        FSharpType.GetUnionCases(t)
+        |> Array.find (fun uci -> uci.Name = name)
+
+    let isRegisteredParentType (tp: Type) =
+        inheritedConverterTypes.ContainsKey(tp.FullName)
+
+    override x.CanConvert(t) =
+        let kind = getOrAddTypeKind t
+    
         match kind with 
         | Kind.Other -> isRegisteredParentType t
         | _ -> true       
@@ -211,7 +225,11 @@ type FSharpJsonConverter() =
                 oid.WriteTo(writer)
             | true, Kind.DateTime ->
                 let dt = value :?> DateTime
-                let universalTime = if dt.Kind = DateTimeKind.Local then dt.ToUniversalTime() else dt
+                let universalTime = 
+                    match dt.Kind with 
+                    | DateTimeKind.Local
+                    | DateTimeKind.Unspecified -> dt.ToUniversalTime()
+                    | _ -> dt
                 let dateTime = JObject()
                 dateTime.Add(JProperty("$date", universalTime.ToString("O", CultureInfo.InvariantCulture)))
                 dateTime.WriteTo(writer)
@@ -256,7 +274,7 @@ type FSharpJsonConverter() =
                     writer.WritePropertyName(fieldType.Name)
                     serializer.Serialize(writer, fieldValue)
                 writer.WriteEndObject()
-                
+            
             | true, _ ->                
                 serializer.Serialize(writer, value)
 
@@ -290,9 +308,8 @@ type FSharpJsonConverter() =
             upcast Double.Parse(value)
         | true, Kind.DateTime ->
             let jsonObject = JObject.Load(reader)
-            let dateValue = jsonObject.["$date"].Value<string>()
-            let date = DateTime.Parse(dateValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
-            upcast (if date.Kind = DateTimeKind.Local then date.ToUniversalTime() else date)
+            upcast jsonObject.["$date"].Value<DateTime>().ToLocalTime()
+
         | true, Kind.Option ->
             let innerType = t.GetGenericArguments().[0]
             let innerType =
@@ -301,7 +318,7 @@ type FSharpJsonConverter() =
                 else innerType
 
             let cases = FSharpType.GetUnionCases(t)
-            
+        
             let value = 
                 match reader.TokenType with 
                 | JsonToken.StartObject ->
@@ -384,9 +401,9 @@ type FSharpJsonConverter() =
                 match recordJson.TryGetValue fieldName with 
                 | true, fieldValueJson -> fieldValueJson.ToObject(fieldType, serializer)
                 | false, _ -> DefaultValue.fromType fieldType
-            
+        
             FSharpValue.MakeRecord(t, recordValues)
-            
+        
         | true, _ ->
             serializer.Deserialize(reader, t)
 

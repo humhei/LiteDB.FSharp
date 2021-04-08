@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFrameworks>netstandard2.0;net45;net461</TargetFrameworks>
+        <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <IsPackable>true</IsPackable>
     </PropertyGroup>
@@ -9,7 +9,6 @@
       <OutputPath>..\bin</OutputPath>
     </PropertyGroup>
     <ItemGroup>
-        <Compile Include="Linq.fs" />
         <Compile Include="Json.fs" />
         <Compile Include="Bson.fs" />
         <Compile Include="FSharpBsonMapper.fs" />
@@ -18,5 +17,8 @@
         <Compile Include="Query.fs" />
         <Compile Include="Extensions.fs" />
     </ItemGroup>
-    <Import Project="..\.paket\Paket.Restore.targets" />
+    <ItemGroup>
+      <ProjectReference Include="..\..\LiteDB\LiteDB\LiteDB.csproj" />
+    </ItemGroup>
+    <!--<Import Project="..\.paket\Paket.Restore.targets" />-->
 </Project>

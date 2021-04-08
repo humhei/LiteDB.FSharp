@@ -45,7 +45,7 @@ let main argv =
     let typeShapeMapper = TypeShapeMapper() :> FSharpBsonMapper
     let tests =
         testList "Parameterized tests" [
-            liteDbTests bsonJsonMapper "JSON Mapper Tests"
+            //liteDbTests bsonJsonMapper "JSON Mapper Tests"
             liteDbTests typeShapeMapper "TypeShape Mapper Tests"
         ]
 
