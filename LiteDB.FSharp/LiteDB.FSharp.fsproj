@@ -17,8 +17,5 @@
         <Compile Include="Query.fs" />
         <Compile Include="Extensions.fs" />
     </ItemGroup>
-    <ItemGroup>
-      <ProjectReference Include="..\..\LiteDB\LiteDB\LiteDB.csproj" />
-    </ItemGroup>
-    <!--<Import Project="..\.paket\Paket.Restore.targets" />-->
+    <Import Project="..\.paket\Paket.Restore.targets" />
 </Project>

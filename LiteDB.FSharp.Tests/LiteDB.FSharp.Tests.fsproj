@@ -4,7 +4,6 @@
     <TargetFramework>netcoreapp2.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\LiteDB\LiteDB\LiteDB.csproj" />
     <ProjectReference Include="..\LiteDB.FSharp\LiteDB.FSharp.fsproj" />
   </ItemGroup>
   <ItemGroup>
