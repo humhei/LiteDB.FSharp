@@ -198,7 +198,7 @@ let liteDatabaseUsage mapper=
                         | 1, None -> pass()
                         | _ -> fail()
 
-        ftestCase "Documents with optional Record = Some can be used" <| fun _ ->
+        testCase "Documents with optional Record = Some can be used" <| fun _ ->
             useDatabase mapper<| fun db ->
                 let docs = db.GetCollection<RecordWithOptionalRecord>()
                 docs.Insert { Id = 1; Record = Some {Id = 1; Name = "Name"} } |> ignore
