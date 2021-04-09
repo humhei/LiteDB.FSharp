@@ -52,6 +52,11 @@ module internal DefaultValue =
 [<AutoOpen>]
 module private _JsonUtils =
 
+    [<RequireQualifiedAccess>]
+    type ConvertableUnionType =
+        | SinglePrivate of UnionCaseInfo
+        | Public of UnionCaseInfo []
+
     [<AutoOpen>]
     module ReflectionAdapters =
 
@@ -81,6 +86,7 @@ module private _JsonUtils =
         | ObjectId = 13
         | Double = 14
         | Record = 15
+        | Enum = 16
 
     module Cache =
 
@@ -88,6 +94,28 @@ module private _JsonUtils =
         let serializationBinderTypes = ConcurrentDictionary<string,Type>()
         let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
         let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
+
+        let private convertableUnionTypes = ConcurrentDictionary<Type, ConvertableUnionType option>()
+
+        let (|ConvertableUnionType|_|) (t: Type) =
+            convertableUnionTypes.GetOrAdd(t, (fun _ ->
+                if FSharpType.IsUnion (t) 
+                then Some (ConvertableUnionType.Public (FSharpType.GetUnionCases t))
+                elif FSharpType.IsUnion(t, true)
+                then
+                    let ucies = FSharpType.GetUnionCases(t, true)
+                    match ucies.Length with 
+                    | 0 -> None
+                    | 1 -> Some (ConvertableUnionType.SinglePrivate (ucies.[0]))
+                    | i when i > 1 -> None
+                    | _ -> failwith "Invalid token"
+                else None
+            ))
+
+        let isConvertableUnionType t =
+            match t with 
+            | ConvertableUnionType _ -> true
+            | _ -> false
 
         let getOrAddTypeKind (t: Type) =
             jsonConverterTypes.GetOrAdd(t, fun t ->
@@ -109,7 +137,7 @@ module private _JsonUtils =
                 then Kind.Binary
                 elif FSharpType.IsTuple t
                 then Kind.Tuple
-                elif (FSharpType.IsUnion t && t.Name <> "FSharpList`1")
+                elif (isConvertableUnionType t && t.Name <> "FSharpList`1")
                 then Kind.Union
                 elif (FSharpType.IsRecord t)
                 then Kind.Record
@@ -118,6 +146,8 @@ module private _JsonUtils =
                     && t.GetGenericArguments().[0] <> typeof<string>
                 then
                     Kind.MapOrDictWithNonStringKey
+                elif t.IsEnum 
+                then Kind.Enum
                 else Kind.Other)
 
     /// Helper for serializing map/dict with non-primitive, non-string keys such as unions and records.
@@ -156,12 +186,7 @@ module private _JsonUtils =
                     serializer.Serialize(writer, v) )
             writer.WriteEndObject()
 
-module private Cache =
 
-    let jsonConverterTypes = ConcurrentDictionary<Type,Kind>()
-    let serializationBinderTypes = ConcurrentDictionary<string,Type>()
-    let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
-    let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
 
 open Cache
 open System
@@ -197,36 +222,7 @@ type FSharpJsonConverter() =
         inheritedConverterTypes.ContainsKey(tp.FullName)
 
     override x.CanConvert(t) =
-        let kind =
-            jsonConverterTypes.GetOrAdd(t, fun t ->
-                if t.FullName = "System.DateTime"
-                then Kind.DateTime
-                elif t.FullName = "System.Guid"
-                then Kind.Guid
-                elif t.Name = "FSharpOption`1"
-                then Kind.Option
-                elif t.FullName = "System.Int64"
-                then Kind.Long
-                elif t.FullName = "System.Double"
-                then Kind.Double
-                elif t = typeof<LiteDB.ObjectId>
-                then Kind.ObjectId
-                elif t.FullName = "System.Numerics.BigInteger"
-                then Kind.BigInt
-                elif t = typeof<byte[]> 
-                then Kind.Binary
-                elif FSharpType.IsTuple t
-                then Kind.Tuple
-                elif (FSharpType.IsUnion t && t.Name <> "FSharpList`1")
-                then Kind.Union
-                elif (FSharpType.IsRecord t)
-                then Kind.Record
-                elif t.IsGenericType
-                    && (t.GetGenericTypeDefinition() = typedefof<Map<_,_>> || t.GetGenericTypeDefinition() = typedefof<Dictionary<_,_>>)
-                    && t.GetGenericArguments().[0] <> typeof<string>
-                then
-                    Kind.MapOrDictWithNonStringKey
-                else Kind.Other)
+        let kind = getOrAddTypeKind t
         
         match kind with 
         | Kind.Other -> isRegisteredParentType t
