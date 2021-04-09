@@ -17,5 +17,14 @@
         <Compile Include="Query.fs" />
         <Compile Include="Extensions.fs" />
     </ItemGroup>
-    <Import Project="..\.paket\Paket.Restore.targets" />
+    <ItemGroup>
+      <PackageReference Include="LiteDB" Version="5.99.90" />
+      <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+      <PackageReference Include="TypeShape" Version="9.0.0" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="4.7.2" />
+    </ItemGroup>
+
+    <!--<Import Project="..\.paket\Paket.Restore.targets" />-->
 </Project>

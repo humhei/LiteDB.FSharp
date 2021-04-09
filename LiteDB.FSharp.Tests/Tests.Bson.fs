@@ -57,7 +57,7 @@ let bsonConversions =
       | {id = 1; float = 8.5039370078740166} -> pass()
       | otherwise -> fail()  
 
-    ftestCase "records with enum" <| fun _ ->
+    testCase "records with enum" <| fun _ ->
       let record = { id = 1; color = ConsoleColor.Gray }
       let doc = Bson.serialize record
       match Bson.deserialize<RecordWithEnum> doc with

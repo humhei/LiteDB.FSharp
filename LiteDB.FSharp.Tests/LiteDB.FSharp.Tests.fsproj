@@ -14,5 +14,7 @@
     <Compile Include="Tests.InheritedType.fs" />
     <Compile Include="Tests.Runner.fs" />
   </ItemGroup>
-  <Import Project="..\.paket\Paket.Restore.targets" />
+  <ItemGroup>
+    <PackageReference Include="Expecto" Version="9.0.2" />
+  </ItemGroup>
 </Project>

@@ -16,6 +16,7 @@ module Query =
             | Kind.Union 
             | Kind.Record 
             | Kind.MapOrDictWithNonStringKey
+            | Kind.Other -> Bson.serializeField value
             | Kind.Enum ->
                 match Type.GetTypeCode(value.GetType().GetEnumUnderlyingType()) with 
                 | TypeCode.Byte    ->  BsonValue(value :?> Byte   )
@@ -30,7 +31,6 @@ module Query =
                 | TypeCode.UInt32  ->  BsonValue(value :?> UInt32 )
                 | TypeCode.SByte   ->  BsonValue(value :?> SByte  )
                 | tpCode -> failwithf "tpCode %A is not an enum underlying type" tpCode 
-            | Kind.Other -> Bson.serializeField value
             | _ -> BsonValue(value)
 
         match expr with
@@ -65,6 +65,10 @@ module Query =
 
         | Patterns.StringIsNullOrEmpty propName ->
             sprintf "%s = '' OR %s = null" propName propName
+            |> BsonExpression.Create
+
+        | Patterns.LiteralBooleanValue value ->
+            sprintf "%b = true" value
             |> BsonExpression.Create
 
         | Patterns.PropertyEqual (propName, value) ->

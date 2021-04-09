@@ -226,7 +226,9 @@ type FSharpJsonConverter() =
         
         match kind with 
         | Kind.Other -> isRegisteredParentType t
-        | _ -> true       
+        | Kind.Enum -> false
+        | _ -> true
+        
 
     override x.WriteJson(writer, value, serializer) =
         if isNull value
