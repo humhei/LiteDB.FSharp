@@ -105,7 +105,7 @@ let liteDatabaseUsage mapper=
 
                 let documents = db.GetCollection<BsonDocument>("booleans")
                 let firstDoc = documents.FindAll() |> Seq.head
-                //Expect.equal (Bson.readInt "_id" firstDoc) 1 "Id of BsonDocument is 1"
+                Expect.equal (Bson.readInt "_id" firstDoc) 1 "Id of BsonDocument is 1"
                 Expect.equal (Bson.readBool "HasValue" firstDoc) true "Id of BsonDocument is 1"
 
         testCase "Inserting and FindById work" <| fun _ ->
@@ -144,7 +144,7 @@ let liteDatabaseUsage mapper=
                 docs.Insert doc |> ignore
                 let inserted = docs.findOne(fun doc -> true)
                 Expect.equal 1 inserted.Keys.Count "Doc has one key (_id)"
-                //Expect.equal 42 (Bson.readInt "_id" inserted) "_id = 42"
+                Expect.equal 42 (Bson.readInt "_id" inserted) "_id = 42"
 
         testCase "Documents with optional DateTime = Some can be used" <| fun _ ->
             useDatabase mapper<| fun db ->
@@ -513,31 +513,31 @@ let liteDatabaseUsage mapper=
                     | 2 -> pass()
                     | _ -> fail()
 
-        //testCase "Search by created where expression" <| fun _ ->
-        //    useDatabase mapper<| fun db ->
-        //        let values = db.GetCollection<RecordWithBoolean>()
-        //        values.Insert({ Id = 1; HasValue = true }) |> ignore
-        //        values.Insert({ Id = 2; HasValue = false }) |> ignore
+        testCase "Search by created where expression" <| fun _ ->
+            useDatabase mapper<| fun db ->
+                let values = db.GetCollection<RecordWithBoolean>()
+                values.Insert({ Id = 1; HasValue = true }) |> ignore
+                values.Insert({ Id = 2; HasValue = false }) |> ignore
 
-        //        let query = values.where <@ fun value -> value.HasValue @> id
-        //        values.Find(query)
-        //        |> Seq.length
-        //        |> function
-        //            | 1 -> pass()
-        //            | _ -> fail()
+                let results = values.where <@ fun value -> value.HasValue @> id
+                results
+                |> Seq.length
+                |> function
+                    | 1 -> pass()
+                    | _ -> fail()
 
-        //testCase "Search by created where expression and id selector" <| fun _ ->
-        //    useDatabase mapper<| fun db ->
-        //        let values = db.GetCollection<RecordWithBoolean>()
-        //        values.Insert({ Id = 1; HasValue = true }) |> ignore
-        //        values.Insert({ Id = 2; HasValue = false }) |> ignore
+        testCase "Search by created where expression and id selector" <| fun _ ->
+            useDatabase mapper<| fun db ->
+                let values = db.GetCollection<RecordWithBoolean>()
+                values.Insert({ Id = 1; HasValue = true }) |> ignore
+                values.Insert({ Id = 2; HasValue = false }) |> ignore
 
-        //        let query = values.where <@ fun value -> value.Id @> (fun id -> id = 1 || id = 2)
-        //        values.Find(query)
-        //        |> Seq.length
-        //        |> function
-        //            | 2 -> pass()
-        //            | _ -> fail()
+                let results = values.where <@ fun value -> value.Id @> (fun id -> id = 1 || id = 2)
+                results
+                |> Seq.length
+                |> function
+                    | 2 -> pass()
+                    | _ -> fail()
 
         testCase "Search by expression OR works with NOT operator" <| fun _ ->
             useDatabase mapper<| fun db ->
@@ -575,53 +575,53 @@ let liteDatabaseUsage mapper=
                 | { Id = 1; Name = "Mike"; Age = 10; Status = Married; DateAdded = time } -> pass()
                 | otherwise -> fail()
 
-        //testCase "Full custom search works by BsonValue deserialization" <| fun _ ->
-        //    useJsonMapperDatabase <| fun db ->
-        //        let records = db.GetCollection<RecordWithShape> "Shapes"
-        //        let shape =
-        //            Composite [
-        //              Circle 2.0;
-        //              Composite [ Circle 4.0; Rect(2.0, 5.0) ]
-        //            ]
-        //        let record = { Id = 1; Shape = shape }
+        testCase "Full custom search works by BsonValue deserialization" <| fun _ ->
+            useJsonMapperDatabase <| fun db ->
+                let records = db.GetCollection<RecordWithShape> "Shapes"
+                let shape =
+                    Composite [
+                      Circle 2.0;
+                      Composite [ Circle 4.0; Rect(2.0, 5.0) ]
+                    ]
+                let record = { Id = 1; Shape = shape }
 
-        //        records.Insert(record) |> ignore
-        //        let searchQuery =
-        //            Query.Where("Shape", fun bsonValue ->
-        //                let shapeValue = Bson.deserializeField<Shape> bsonValue
-        //                match shapeValue with
-        //                | Composite [ Circle 2.0; other ] -> true
-        //                | otherwise -> false
-        //            )
+                records.Insert(record) |> ignore
+                let results =
+                    records.FullSearch("Shape", fun bsonValue ->
+                        let shapeValue = Bson.deserializeField<Shape> bsonValue
+                        match shapeValue with
+                        | Composite [ Circle 2.0; other ] -> true
+                        | otherwise -> false
+                    )
 
-        //        records.Find(searchQuery)
-        //        |> Seq.length
-        //        |> function
-        //            | 1 -> pass()
-        //            | n -> fail()
+                results
+                |> Seq.length
+                |> function
+                    | 1 -> pass()
+                    | n -> fail()
 
-        //testCase "Full custom search works by using expressions" <| fun _ ->
-        //    useJsonMapperDatabase <| fun db ->
-        //        let records = db.GetCollection<RecordWithShape> "Shapes"
-        //        let shape =
-        //            Composite [
-        //              Circle 2.0;
-        //              Composite [ Circle 4.0; Rect(2.0, 5.0) ]
-        //            ]
-        //        let record = { Id = 1; Shape = shape }
-        //        records.Insert(record) |> ignore
+        testCase "Full custom search works by using expressions" <| fun _ ->
+            useJsonMapperDatabase <| fun db ->
+                let records = db.GetCollection<RecordWithShape> "Shapes"
+                let shape =
+                    Composite [
+                      Circle 2.0;
+                      Composite [ Circle 4.0; Rect(2.0, 5.0) ]
+                    ]
+                let record = { Id = 1; Shape = shape }
+                records.Insert(record) |> ignore
 
-        //        let searchResults =
-        //            records.fullSearch
-        //                <@ fun r -> r.Shape @>
-        //                (fun shape ->
-        //                    match shape with
-        //                    | Composite [ Circle 2.0; other ] -> true
-        //                    | otherwise -> false)
+                let searchResults =
+                    records.fullSearch
+                        <@ fun r -> r.Shape @>
+                        (fun shape ->
+                            match shape with
+                            | Composite [ Circle 2.0; other ] -> true
+                            | otherwise -> false)
 
-        //        searchResults
-        //        |> Seq.length
-        //        |> function
-        //            | 1 -> pass()
-        //            | n -> fail()
+                searchResults
+                |> Seq.length
+                |> function
+                    | 1 -> pass()
+                    | n -> fail()
     ]

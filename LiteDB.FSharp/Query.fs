@@ -6,6 +6,7 @@ open Microsoft.FSharp.Quotations.Patterns
 open LiteDB
 open Microsoft.FSharp.Reflection
 open Cache
+open Patterns
 
 module Query =
 
@@ -104,3 +105,5 @@ module Query =
         | otherwise ->
             let serialziedExpr = sprintf "%A" otherwise
             failwithf "Failed to construct a query from the expression: \n%s\n" serialziedExpr
+
+

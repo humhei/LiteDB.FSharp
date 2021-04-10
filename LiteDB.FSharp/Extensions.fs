@@ -9,6 +9,7 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Quotations.Patterns
 open System
+open Patterns
 
 module Extensions =
     open Microsoft.FSharp.Quotations
@@ -44,38 +45,53 @@ module Extensions =
             let query = Query.createQueryFromExpr expr
             collection.Find(query)
 
-
-        /// never using a Query.Where any more? see https://github.com/mbdavid/LiteDB/issues/1746!
         /// Executes a full search using the Where query
-        [<Obsolete("Using findMany instead, fullSearch is not recommand")>]
-        member collection.fullSearch<'t, 'u> (expr: Expr<'t -> 'u>) (pred: 'u -> bool) =
-            match expr with
-            | Lambda(_, PropertyGet(_, propInfo, [])) ->
-                collection.FindAll()
-                |> Seq.filter (fun v ->
-                    unbox<'u>(propInfo.GetValue v)
-                    |> pred
-                )
+        member private collection.FullSearch<'t, 'u> (propNames: string seq, pred: BsonValue -> bool) =
+            collection.Query().ToDocuments()
+            |> Seq.filter(fun doc -> 
+                let bsonValue = 
+                    ((doc :> BsonValue) ,propNames)
+                    ||> Seq.fold(fun doc propName ->
+                        doc.[propName]
+                    )
+                pred bsonValue
+             )   
+             |> Seq.map (Bson.deserialize<'t>)
 
-            | _ ->
+        /// Executes a full search using the Where query
+        member collection.FullSearch<'t, 'u> (propName: string, pred: BsonValue -> bool) =
+            collection.FullSearch<'t, 'u>(propName.Split '.', pred)
+
+        /// Executes a full search using the Where query
+        member collection.FullSearch<'t, 'u> (expr: Expr<'t -> 'u>, pred: BsonValue -> bool) =
+            match expr with 
+            | NestedPropertyNamesGetter propNames -> 
+                let propNames =
+                    match propNames with 
+                    | [ "Id" | "id" | "ID" ] -> ["_id"]
+                    | _ -> propNames
+
+                collection.FullSearch<'t, 'u>(propNames, pred) 
+            | _ ->  
                 let expression = sprintf "%A" expr
                 failwithf "Could not recognize the given expression \n%s\n, it should a simple lambda to select a property, for example: <@ fun record -> record.property @>" expression
 
 
-        /// never using a Query.Where any more? see https://github.com/mbdavid/LiteDB/issues/1746!
+
+        /// Executes a full search using the Where query
+        member collection.fullSearch<'t, 'u> (expr: Expr<'t -> 'u>) (pred: 'u -> bool) =
+            collection.FullSearch<'t, 'u> (expr, (fun (bsonValue: BsonValue) ->
+                Bson.deserializeField bsonValue
+                |> pred
+            ))
+
+
         /// Creates a Query for a full search using a selector expression like `<@ fun record -> record.Name @>` and predicate
-        [<Obsolete("Using findMany instead, fullSearch is not recommand")>]
         member collection.where<'t, 'u> (expr: Expr<'t -> 'u>) (pred: 'u -> bool) =
-            match expr with
-                | Lambda(_, PropertyGet(_, propInfo, [])) ->
-                    collection.FindAll()
-                    |> Seq.filter (fun v ->
-                        unbox<'u>(propInfo.GetValue v)
-                        |> pred
-                    )
-                | _ ->
-                    let expression = sprintf "%A" expr
-                    failwithf "Could not recognize the given expression \n%s\n, it should a simple lambda to select a property, for example: <@ fun record -> record.property @>" expression
+            collection.FullSearch<'t, 'u> (expr, (fun (bsonValue: BsonValue) ->
+                Bson.deserializeField bsonValue
+                |> pred
+            ))
 
         /// Remove all document based on quoted expression query. Returns removed document counts
         member collection.delete<'t> ([<ReflectedDefinition>] expr: Expr<'t -> bool>) =
