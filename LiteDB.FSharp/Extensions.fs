@@ -65,7 +65,7 @@ module Extensions =
         /// Executes a full search using the Where query
         member collection.FullSearch<'t, 'u> (expr: Expr<'t -> 'u>, pred: BsonValue -> bool) =
             match expr with 
-            | NestedPropertyNamesGetter propNames -> 
+            | Lambda(_, NestedPropertyNamesGetter propNames) -> 
                 let propNames =
                     match propNames with 
                     | [ "Id" | "id" | "ID" ] -> ["_id"]
