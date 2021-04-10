@@ -77,18 +77,28 @@ module Patterns =
         | PropertyGetter value -> Some value
         | _ -> None
 
-    let (|NestedPropertyNameGetter|_|) expr =
+    let (|NestedPropertyNamesGetter|_|) expr =
         let rec loop accum expr =
             match expr with 
             | PropertyGet (expr, propInfo, _) -> 
                 match expr with 
                 | Some expr -> loop ((propInfo.Name) :: accum) expr
-                | None -> accum
+                | None -> propInfo.Name :: accum
             | _ -> accum
 
-        match loop [] expr with 
-        | [] -> None
-        | propsNames -> Some (String.concat "." propsNames)
+        match expr with 
+        | PropertyGet _ ->  Some (loop [] expr)
+        | _ -> None
+
+
+    let (|NestedPropertyNameGetter|_|) expr =
+        match expr with 
+        | NestedPropertyNamesGetter propNames -> 
+            match propNames with 
+            | [] -> Some "$"
+            | _ -> Some (String.concat "." propNames)
+        | _ -> None
+
 
     let (|LogicOp|_|) (info: MethodInfo) = 
         match info.Name with 
