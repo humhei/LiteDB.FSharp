@@ -128,7 +128,14 @@ module private _JsonUtils =
                         match icaseInfo with 
                         | Some icaseInfo ->
                             let uci = ucies.[0]
-                            let genericArguments = icaseInfo.GetGenericArguments()
+                            let genericArguments = 
+                                let genericArguments = icaseInfo.GetGenericArguments()
+                                match genericArguments with 
+                                | [| genericArgument |] ->
+                                    match FSharpType.IsTuple genericArgument with 
+                                    | true -> genericArgument.GetGenericArguments()
+                                    | false -> genericArguments 
+                                | _ -> genericArguments
                             let fieldTypeInfos = 
                                 uci.GetFields()
                                 |> Array.map (fun propInfo -> propInfo.PropertyType)
