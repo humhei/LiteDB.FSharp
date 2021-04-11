@@ -14,11 +14,11 @@ open System.Runtime.CompilerServices
 
 /// using unconstructable CaseInfoProtector to prevent directly invoking ICaseInfo.CaseInfo
 /// As we only get generic type information there
-type CaseInfoProtector private () = class end
+type SingleCaseInfoProtector private () = class end
 
 
-type ICaseInfo<'T> =
-    abstract member CaseInfo: CaseInfoProtector -> 'T
+type ISingleCaseInfo<'T> =
+    abstract member CaseInfo: SingleCaseInfoProtector -> 'T
 
 [<assembly: InternalsVisibleTo("LiteDB.FSharp.Tests")>]
 do()
@@ -123,7 +123,7 @@ module private _JsonUtils =
                                         then m.GetGenericTypeDefinition().FullName
                                         else m.FullName
 
-                                fullName = typedefof<ICaseInfo<_>>.FullName)
+                                fullName = typedefof<ISingleCaseInfo<_>>.FullName)
 
                         match icaseInfo with 
                         | Some icaseInfo ->
@@ -138,7 +138,7 @@ module private _JsonUtils =
                                 let fieldInfoNames =
                                     fieldTypeInfos
                                     |> Array.map (fun t -> t.FullName)
-                                failwithf "Generic type definition of ICaseInfo should be consistent to %A" fieldInfoNames
+                                failwithf "Generic type definition of ISingleCaseInfo should be consistent to %A" fieldInfoNames
                         | None -> None
 
                     | i when i > 1 -> None
