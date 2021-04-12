@@ -119,6 +119,7 @@ module Bson =
                     |_, (:? BsonArray as bsonArray) ->
                         // if property is BsonArray then loop through each element
                         // and if that element is a record, then re-write _id back to original
+                        let c = y
                         let collectionType = entityType.GetProperty(y).PropertyType
                         let elementType = getCollectionElementType collectionType
                         if FSharpType.IsRecord elementType then

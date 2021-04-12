@@ -145,7 +145,7 @@ module private _JsonUtils =
                                 let fieldInfoNames =
                                     fieldTypeInfos
                                     |> Array.map (fun t -> t.FullName)
-                                failwithf "Generic type definition of ISingleCaseInfo should be consistent to %A" fieldInfoNames
+                                failwithf "%s 's Generic type definition of ISingleCaseInfo should be consistent to %A" t.FullName fieldInfoNames
                         | None -> None
 
                     | i when i > 1 -> None
