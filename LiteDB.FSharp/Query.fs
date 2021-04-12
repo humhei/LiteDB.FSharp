@@ -17,6 +17,7 @@ module Query =
             | Kind.Union 
             | Kind.Record 
             | Kind.MapOrDictWithNonStringKey
+            | Kind.Tuple
             | Kind.Other -> Bson.serializeField value
             | Kind.Enum ->
                 match Type.GetTypeCode(value.GetType().GetEnumUnderlyingType()) with 
