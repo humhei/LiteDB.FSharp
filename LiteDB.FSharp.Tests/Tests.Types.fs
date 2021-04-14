@@ -18,10 +18,27 @@ with
         | 11 -> PhoneNumber phoneNumber
         | _ -> failwithf "phone number %d 's length should be 11" phoneNumber
 
-    interface ISingleCaseInfo<int64> with 
-        member x.CaseInfo(_) =
-            let (PhoneNumber v) = x
-            v
+
+type YoungPerson = private YoungPerson of name: string * age: int * phoneNumber: PhoneNumber
+with 
+    member x.Name =
+        let (YoungPerson (name, age, phoneNumber)) = x
+        name
+
+    member x.PhoneNumber = 
+        let (YoungPerson (name, age, phoneNumber)) = x
+        phoneNumber
+
+    member x.Age = 
+        let (YoungPerson (name, age, phoneNumber)) = x
+        age
+
+    static member Create(name, age, phoneNumber) =
+        if age < 35 
+        then YoungPerson(name, age, phoneNumber)
+        else failwithf "Young person's age should be <= %d" 35
+
+
 
 
 type YoungPerson = private YoungPerson of name: string * age: int * phoneNumber: PhoneNumber
