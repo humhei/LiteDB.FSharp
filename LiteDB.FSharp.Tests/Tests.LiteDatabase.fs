@@ -25,7 +25,7 @@ type RecordWithBoolean = { Id: int; HasValue: bool }
 
 type RecordWithStr = { Id : int; Name: string }
 
-type NestedRecord = { Inner : PersonDocument }
+type NestedRecord = { Id: int; Inner : PersonDocument }
 
 type RecordWithOptionalDate = {
     Id : int
@@ -74,7 +74,7 @@ let liteDatabaseUsage mapper=
                     | [ { Id = 1; MutableBoolean = false } ] -> pass()
                     | otherwise -> fail()
 
-        testCase "findOne works when Id is a single case union" <| fun _ ->
+        ftestCase "findOne works when Id is a single case union" <| fun _ ->
             useJsonMapperDatabase <| fun db ->
                 let records = db.GetCollection<RecordWithSingleCaseId>("documents")
                 let record = { Id = SingleCaseDU 20; Value = "John" }
@@ -83,6 +83,20 @@ let liteDatabaseUsage mapper=
                 records.findOne (fun document -> document.Id = SingleCaseDU 20)
                 |> function
                     | { Id = SingleCaseDU 20; Value = "John" } -> pass()
+                    | otherwise -> fail()
+
+        testCase "Query expression with single private case union is supported" <| fun _ ->
+            useJsonMapperDatabase <| fun db ->
+                let records = db.GetCollection<RecordWithSinglePrivateUnion>("documents")
+                let record = { Id = 1; YoungPerson = YoungPerson.Create ("Mike", 30, PhoneNumber.Create 16511825922L) }
+
+                records.Insert(record) |> ignore
+                records.findOne (fun document -> document.YoungPerson = record.YoungPerson)
+                |> function
+                    | { Id = 1; YoungPerson = youngPerson } -> 
+                      match youngPerson.Name, youngPerson.Age, youngPerson.PhoneNumber.Value with 
+                      | "Mike", 30, 16511825922L -> pass()
+                      | _ -> fail()
                     | otherwise -> fail()
 
         testCase "Uninitialized values are populated with default values" <| fun _ ->
@@ -145,6 +159,16 @@ let liteDatabaseUsage mapper=
                 let inserted = docs.findOne(fun doc -> true)
                 Expect.equal 1 inserted.Keys.Count "Doc has one key (_id)"
                 Expect.equal 42 (Bson.readInt "_id" inserted) "_id = 42"
+
+        testCase "Query expression with enum value is supported" <| fun _ ->
+            useDatabase mapper<| fun db ->
+                let docs = db.GetCollection<RecordWithEnum>()
+                docs.Insert { id = 1; color = ConsoleColor.Gray } |> ignore
+
+                match docs.tryFindOne(fun doc -> doc.color = ConsoleColor.Gray ) with 
+                | Some { id = 1; color = ConsoleColor.Gray } -> pass()
+                | _ -> fail()
+
 
         testCase "Documents with optional DateTime = Some can be used" <| fun _ ->
             useDatabase mapper<| fun db ->
@@ -273,14 +297,26 @@ let liteDatabaseUsage mapper=
                             | n -> fail()
 
 
-        testCase "Extracting values from nested getter works" <| fun _ ->
+        testCase "Extracting values from right nested getter works" <| fun _ ->
             useDatabase mapper<| fun db ->
                 let people = db.GetCollection<PersonDocument>("people")
                 let time = DateTime(2017, 10, 15)
                 let mike = { Id = 1; Name = "Mike"; Age = 10; Status = Married; DateAdded = time }
-                let nestedRecord = { Inner = mike }
+                let nestedRecord = { Id = 1; Inner = mike }
                 people.Insert(mike) |> ignore
                 people.findMany <@ fun person -> person.Name = nestedRecord.Inner.Name @>
+                |> Seq.length
+                |> function | 1 -> pass()
+                            | n -> fail()
+
+        testCase "Extracting values from left nested getter works" <| fun _ ->
+            useDatabase mapper<| fun db ->
+                let people = db.GetCollection<NestedRecord>("nestedRecord")
+                let time = DateTime(2017, 10, 15)
+                let mike = { Id = 1; Name = "Mike"; Age = 10; Status = Married; DateAdded = time }
+                let nestedRecord = { Id = 1; Inner = mike }
+                people.Insert(nestedRecord) |> ignore
+                people.findMany <@ fun person -> person.Inner.Name = mike.Name @>
                 |> Seq.length
                 |> function | 1 -> pass()
                             | n -> fail()

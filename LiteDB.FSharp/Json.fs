@@ -12,6 +12,7 @@ open System.Collections.Concurrent
 open System.Runtime.CompilerServices
 
 
+
 [<assembly: InternalsVisibleTo("LiteDB.FSharp.Tests")>]
 do()
 
@@ -52,6 +53,11 @@ module internal DefaultValue =
 [<AutoOpen>]
 module private _JsonUtils =
 
+    [<RequireQualifiedAccess>]
+    type ConvertableUnionType =
+        | SinglePrivate of UnionCaseInfo
+        | Public of UnionCaseInfo []
+
     [<AutoOpen>]
     module ReflectionAdapters =
 
@@ -81,6 +87,7 @@ module private _JsonUtils =
         | ObjectId = 13
         | Double = 14
         | Record = 15
+        | Enum = 16
 
     module Cache =
 
@@ -88,6 +95,28 @@ module private _JsonUtils =
         let serializationBinderTypes = ConcurrentDictionary<string,Type>()
         let inheritedConverterTypes = ConcurrentDictionary<string,HashSet<Type>>()
         let inheritedTypeQuickAccessor = ConcurrentDictionary<string * list<string>,Type>()
+
+        let private convertableUnionTypes = ConcurrentDictionary<Type, ConvertableUnionType option>()
+
+        let (|ConvertableUnionType|_|) (t: Type) =
+            convertableUnionTypes.GetOrAdd(t, (fun _ ->
+                if FSharpType.IsUnion (t) 
+                then Some (ConvertableUnionType.Public (FSharpType.GetUnionCases t))
+                elif FSharpType.IsUnion(t, true)
+                then
+                    let ucies = FSharpType.GetUnionCases(t, true)
+                    match ucies.Length with 
+                    | 0 -> None
+                    | 1 -> Some (ConvertableUnionType.SinglePrivate ucies.[0])
+                    | i when i > 1 -> None
+                    | _ -> failwith "Invalid token"
+                else None
+            ))
+
+        let isConvertableUnionType t =
+            match t with 
+            | ConvertableUnionType _ -> true
+            | _ -> false
 
         let getOrAddTypeKind (t: Type) =
             jsonConverterTypes.GetOrAdd(t, fun t ->
@@ -109,7 +138,7 @@ module private _JsonUtils =
                 then Kind.Binary
                 elif FSharpType.IsTuple t
                 then Kind.Tuple
-                elif (FSharpType.IsUnion t && t.Name <> "FSharpList`1")
+                elif (isConvertableUnionType t && t.Name <> "FSharpList`1")
                 then Kind.Union
                 elif (FSharpType.IsRecord t)
                 then Kind.Record
@@ -118,6 +147,8 @@ module private _JsonUtils =
                     && t.GetGenericArguments().[0] <> typeof<string>
                 then
                     Kind.MapOrDictWithNonStringKey
+                elif t.IsEnum 
+                then Kind.Enum
                 else Kind.Other)
 
     /// Helper for serializing map/dict with non-primitive, non-string keys such as unions and records.
@@ -157,8 +188,9 @@ module private _JsonUtils =
             writer.WriteEndObject()
 
 
-    open Cache
-    open System
+
+open Cache
+open System
 
 
 
@@ -169,6 +201,7 @@ open Cache
 /// See https://goo.gl/F6YiQk
 type FSharpJsonConverter() =
     inherit Newtonsoft.Json.JsonConverter()
+
     let advance(reader: JsonReader) =
         reader.Read() |> ignore
 
@@ -183,19 +216,20 @@ type FSharpJsonConverter() =
         advance reader
         read 0 List.empty
 
-    let getUci t name =
-        FSharpType.GetUnionCases(t)
-        |> Array.find (fun uci -> uci.Name = name)
+
+
 
     let isRegisteredParentType (tp: Type) =
         inheritedConverterTypes.ContainsKey(tp.FullName)
 
     override x.CanConvert(t) =
         let kind = getOrAddTypeKind t
-    
+        
         match kind with 
         | Kind.Other -> isRegisteredParentType t
-        | _ -> true       
+        | Kind.Enum -> false
+        | _ -> true
+        
 
     override x.WriteJson(writer, value, serializer) =
         if isNull value
@@ -251,12 +285,27 @@ type FSharpJsonConverter() =
                 let values = FSharpValue.GetTupleFields(value)
                 serializer.Serialize(writer, values)
             | true, Kind.Union ->
-                let uci, fields = FSharpValue.GetUnionFields(value, t)
+                let uciName, fields =
+                    match t with 
+                    | ConvertableUnionType convertableUnionType ->
+                        match convertableUnionType with 
+                        | ConvertableUnionType.SinglePrivate uci -> 
+                            /// make uciName to 'case' as anonymous property name
+                            /// so private case union is still querable after Case Name is changed
+                            "case", snd (FSharpValue.GetUnionFields(value, t, true))
+
+                        | ConvertableUnionType.Public _ -> 
+                            let uci, fields = FSharpValue.GetUnionFields(value, t)
+                            uci.Name, fields
+                    | _ -> failwithf "%s is not an convertable union type" t.FullName
+
                 if fields.Length = 0
-                then serializer.Serialize(writer, uci.Name)
+                then serializer.Serialize(writer, uciName)
+                        
                 else
                     writer.WriteStartObject()
-                    writer.WritePropertyName(uci.Name)
+                    writer.WritePropertyName(uciName)
+
                     if fields.Length = 1
                     then serializer.Serialize(writer, fields.[0])
                     else serializer.Serialize(writer, fields)
@@ -344,23 +393,51 @@ type FSharpJsonConverter() =
         | true, Kind.Union ->
             match reader.TokenType with
             | JsonToken.String ->
-                let name = serializer.Deserialize(reader, typeof<string>) :?> string
-                FSharpValue.MakeUnion(getUci t name, [||])
+                let uci =
+                    match t with 
+                    | ConvertableUnionType convertableType ->
+                        match convertableType with 
+                        | ConvertableUnionType.Public ucis ->
+                            let name = serializer.Deserialize(reader, typeof<string>) :?> string
+                            ucis
+                            |> Array.find(fun m -> m.Name = name)
+
+                        | ConvertableUnionType.SinglePrivate uci -> uci
+                    | _ -> 
+                        failwithf "%s is not an convertable union type" t.FullName
+                        
+
+                FSharpValue.MakeUnion(uci, [||], true)
+
             | JsonToken.StartObject ->
                 advance reader
-                let name = reader.Value :?> string
-                let uci = getUci t name
+                let uci =
+                    match t with 
+                    | ConvertableUnionType convertableType ->
+                        match convertableType with 
+                        | ConvertableUnionType.Public ucis ->
+                            let name = reader.Value :?> string
+                            ucis
+                            |> Array.find(fun m -> m.Name = name)
+
+                        | ConvertableUnionType.SinglePrivate uci -> uci
+                    | _ -> 
+                        failwithf "%s is not an convertable union type" t.FullName
+                        
+                
                 advance reader
+
                 let itemTypes = uci.GetFields() |> Array.map (fun pi -> pi.PropertyType)
                 if itemTypes.Length > 1
                 then
                     let values = readElements(reader, itemTypes, serializer)
                     advance reader
-                    FSharpValue.MakeUnion(uci, List.toArray values)
+                    FSharpValue.MakeUnion(uci, List.toArray values, true)
                 else
                     let value = serializer.Deserialize(reader, itemTypes.[0])
                     advance reader
-                    FSharpValue.MakeUnion(uci, [|value|])
+
+                    FSharpValue.MakeUnion(uci, [|value|], true)
             | JsonToken.Null -> null // for { "union": null }
             | _ -> failwith "invalid token"
         | true, Kind.MapOrDictWithNonStringKey ->
@@ -399,7 +476,9 @@ type FSharpJsonConverter() =
                 let fieldType = recordField.PropertyType
                 let fieldName = recordField.Name
                 match recordJson.TryGetValue fieldName with 
-                | true, fieldValueJson -> fieldValueJson.ToObject(fieldType, serializer)
+                | true, fieldValueJson -> 
+                    fieldValueJson.ToObject(fieldType, serializer)
+                    
                 | false, _ -> DefaultValue.fromType fieldType
         
             FSharpValue.MakeRecord(t, recordValues)

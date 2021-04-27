@@ -17,7 +17,22 @@ module Query =
             | Kind.Union 
             | Kind.Record 
             | Kind.MapOrDictWithNonStringKey
+            | Kind.Tuple
             | Kind.Other -> Bson.serializeField value
+            | Kind.Enum ->
+                match Type.GetTypeCode(value.GetType().GetEnumUnderlyingType()) with 
+                | TypeCode.Byte    ->  BsonValue(value :?> Byte   )
+                | TypeCode.Decimal ->  BsonValue(value :?> Decimal)
+                | TypeCode.Double  ->  BsonValue(value :?> Double )
+                | TypeCode.Single  ->  BsonValue(value :?> Single )
+                | TypeCode.Int16   ->  BsonValue(value :?> Int16  )
+                | TypeCode.Int32   ->  BsonValue(value :?> Int32  )
+                | TypeCode.Int64   ->  BsonValue(value :?> Int64  )
+                | TypeCode.UInt16  ->  BsonValue(value :?> UInt16 )
+                | TypeCode.UInt64  ->  BsonValue(value :?> UInt64 )
+                | TypeCode.UInt32  ->  BsonValue(value :?> UInt32 )
+                | TypeCode.SByte   ->  BsonValue(value :?> SByte  )
+                | tpCode -> failwithf "tpCode %A is not an enum underlying type" tpCode 
             | _ -> BsonValue(value)
 
         match expr with

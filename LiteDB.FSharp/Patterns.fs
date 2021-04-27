@@ -122,14 +122,14 @@ module Patterns =
         | _ -> None 
         
     let (|PropertyEqual|_|) = function 
-        | Call(_, LogicOp "=", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) -> 
-            Some (propInfo.Name, value)
+        | Call(_, LogicOp "=", [NestedPropertyNameGetter(name); ProvidedValue(value)]) -> 
+            Some (name, value)
         | otherwise -> 
             None
 
     let (|PropertyNotEqual|_|) = function 
-        | Call(_, LogicOp "<>", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) ->
-            Some (propInfo.Name, value) 
+        | Call(_, LogicOp "<>", [NestedPropertyNameGetter(name); ProvidedValue(value)]) ->
+            Some (name, value) 
         | otherwise -> 
             None
      
@@ -139,43 +139,43 @@ module Patterns =
         | _ -> None 
 
     let (|ProperyGreaterThan|_|) = function 
-       | Call(_, LogicOp ">", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) ->
-           Some (propInfo.Name, value)
+       | Call(_, LogicOp ">", [NestedPropertyNameGetter(name); ProvidedValue(value)]) ->
+           Some (name, value)
        | otherwise -> None
 
     let (|StringNullOrWhiteSpace|_|) = function 
-        | Call(_, StringOp "IsNullOrWhiteSpace", [PropertyGet(_, propInfo, [])]) -> 
-            Some (propInfo.Name) 
+        | Call(_, StringOp "IsNullOrWhiteSpace", [NestedPropertyNameGetter(name)]) -> 
+            Some (name) 
         | otherwise -> None 
 
     let (|StringIsNullOrEmpty|_|) = function 
-        | Call(_, StringOp "IsNullOrEmpty", [PropertyGet(_, propInfo, [])]) -> 
-            Some (propInfo.Name)
+        | Call(_, StringOp "IsNullOrEmpty", [NestedPropertyNameGetter(name)]) -> 
+            Some (name)
         | otherwise -> None 
 
     let (|StringContains|_|) = function 
-        | Call(Some (PropertyGet(_, propInfo, [])), StringOp "Contains",[ProvidedValue(value)]) ->
-            Some (propInfo.Name, value) 
+        | Call(Some (NestedPropertyNameGetter(name)), StringOp "Contains",[ProvidedValue(value)]) ->
+            Some (name, value) 
         | otherwise -> None 
         
     let (|ProperyGreaterThanOrEqual|_|) = function 
-       | Call(_, LogicOp ">=", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) ->
-           Some (propInfo.Name, value)
+       | Call(_, LogicOp ">=", [NestedPropertyNameGetter(name); ProvidedValue(value)]) ->
+           Some (name, value)
        | otherwise -> None
 
     let (|PropertyLessThan|_|) = function 
-       | Call(_, LogicOp "<", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) ->
-           Some (propInfo.Name, value)
+       | Call(_, LogicOp "<", [NestedPropertyNameGetter(name); ProvidedValue(value)]) ->
+           Some (name, value)
        | otherwise -> None
 
     let (|BooleanGet|_|) = function 
-        | PropertyGet(_, propInfo, []) -> 
-            Some propInfo.Name 
+        | NestedPropertyNameGetter(name) -> 
+            Some name 
         | otherwise -> None 
     
     let (|PropertyLessThanOrEqual|_|) = function 
-       | Call(_, LogicOp "<=", [PropertyGet(_, propInfo, []); ProvidedValue(value)]) ->
-           Some (propInfo.Name, value)
+       | Call(_, LogicOp "<=", [NestedPropertyNameGetter(name); ProvidedValue(value)]) ->
+           Some (name, value)
        | otherwise -> None
 
     let (|Boolean|_|) = tryUnbox<bool> 
