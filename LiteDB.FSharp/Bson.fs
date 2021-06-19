@@ -125,19 +125,20 @@ module Bson =
                     |_, (:? BsonArray as bsonArray) ->
                         // if property is BsonArray then loop through each element
                         // and if that element is a record, then re-write _id back to original
-                        let c = y
                         let collectionType = entityType.GetProperty(y).PropertyType
 
                         let elementTypes = getCollectionElementType collectionType
-                        for elementType in elementTypes do
+
+                        (elementTypes, bsonArray)
+                        ||> Seq.iter2(fun elementType bson ->
                             if FSharpType.IsRecord elementType then
                                 let docKey = getKeyFieldName elementType
-                                for bson in bsonArray do
-                                    if bson.IsDocument 
-                                    then
-                                      let doc = bson.AsDocument
-                                      let keys = List.ofSeq doc.RawValue.Keys
-                                      rewriteKey keys doc elementType docKey
+                                if bson.IsDocument 
+                                then
+                                    let doc = bson.AsDocument
+                                    let keys = List.ofSeq doc.RawValue.Keys
+                                    rewriteKey keys doc elementType docKey
+                        )
                         
                         continueToNext()
                     |_ -> 

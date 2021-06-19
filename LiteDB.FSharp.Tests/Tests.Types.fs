@@ -2,10 +2,22 @@ module Tests.Types
 
 open System
 open LiteDB.FSharp
+open Shrimp.FSharp.Plus
 
 type Person = { Id: int; Name: string }
 type LowerCaseId = { id: int; age:int }
 type SimpleUnion = One | Two
+
+type POCO(id: int, name: string, simpleUnion: SimpleUnion, simpleRecord: Person) =
+    inherit POCOBase<int * string>(id, name)
+    member x.Id = id
+
+    member x.Name = name
+
+    member x.SimpleRecord = simpleRecord
+
+    member x.SimpleUnion = simpleUnion
+
 
 type PhoneNumber = private PhoneNumber of int64
 with 

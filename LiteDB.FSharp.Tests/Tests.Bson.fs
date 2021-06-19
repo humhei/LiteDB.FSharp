@@ -35,6 +35,13 @@ let bsonConversions =
       Expect.isTrue (doc.ContainsKey "_id") "Document has _id key"
       Expect.isTrue (doc.ContainsKey "Name") "Document has name key"
 
+    ftestCase "poco class support" <| fun _ ->
+      let record = POCO(id = 1, name = "John", simpleUnion = SimpleUnion.One, simpleRecord = {Id = 0; Name = "John"})
+      let doc = Bson.serialize record
+      match Bson.deserialize<LowerCaseId> doc with
+      | { id = 1; age = 19 } -> pass()
+      | otherwise -> fail()
+
     testCase "simple records with lowercase id" <| fun _ ->
       let record = { id = 1; age = 19 }
       let doc = Bson.serialize record
@@ -364,6 +371,8 @@ let bsonConversions =
       match Bson.deserialize<RecordWithTuple> doc with
       | { id = 1; tuple = ("Mike", 30) } -> pass()
       | otherwise -> fail()
+
+
 
     testCase "(De)serialization of field work" <| fun _ ->
       let sample = Generic (Just 5)
